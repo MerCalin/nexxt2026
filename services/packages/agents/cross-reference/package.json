@@ -1,0 +1,7 @@
+{
+  "name": "@dc/agent-cross-reference",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": { "@dc/contracts": "workspace:*", "@dc/ports": "workspace:*", "@dc/rules": "workspace:*" }
+}

@@ -1,0 +1,10 @@
+{
+  "workflow": "onboarding",
+  "subject": {
+    "customerRef": "KYC-08-PEP"
+  },
+  "consents": [
+    "criminal_record_lookup",
+    "anaf_tax_debt_lookup"
+  ]
+}

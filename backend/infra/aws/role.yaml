@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Staff API — ECS task role. Its only permission is invoking the document-check service through
+  VPC Lattice. It has no access to documents, tables, Bedrock or Textract.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+
+Resources:
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "doccheck-${Env}-staff-api-task"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike: { "aws:SourceArn": !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*" }
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: invoke-document-check
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeDocumentCheckViaLattice
+                Effect: Allow
+                Action: vpc-lattice-svcs:Invoke
+                # the Lattice service is created by infra/aws/services.yaml; its auth policy in turn
+                # only admits this role (referenced there by its fixed name)
+                Resource: !Sub
+                  - "${ServiceArn}/*"
+                  - ServiceArn: { "Fn::ImportValue": !Sub "doccheck-${Env}-lattice-document-check-arn" }
+
+Outputs:
+  TaskRoleArn: { Value: !GetAtt TaskRole.Arn, Export: { Name: !Sub "doccheck-${Env}-staff-api-task-role" } }

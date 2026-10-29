@@ -1,0 +1,28 @@
+{
+  "workflow": "mortgage",
+  "subject": {
+    "customerRef": "BADEA-GABRIEL-B",
+    "declaredSourceOfFunds": "salariu",
+    "isFirstHome": false,
+    "loan": {
+      "amount": 380000,
+      "currency": "RON",
+      "termMonths": 360,
+      "annualRatePct": 6.9,
+      "purchasePrice": 400000
+    }
+  },
+  "consents": [
+    "credit_bureau_lookup",
+    "criminal_record_lookup",
+    "anaf_tax_debt_lookup"
+  ],
+  "pairWith": "~/Downloads/hackerton/Badea_Gabriel_12 (1_ID_Card.png, 3_Residence_Doc.png, 4_Employment.png, 5_Payments_Report.pdf)",
+  "expect": [
+    "COLL_ENCUMBRANCE (ipotecă on the extract)",
+    "COLL_EXTRACT_REGISTRY_MISMATCH (register has 2 encumbrances, extract 1)",
+    "COLL_CADASTRAL_MISMATCH (318902 vs 318920)",
+    "COLL_LTV_EXCEEDED (95 % > 85 %)",
+    "AFFORD_DTI_EXCEEDED"
+  ]
+}

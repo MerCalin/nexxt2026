@@ -1,0 +1,37 @@
+{
+  "name": "@dc/document-check",
+  "private": true,
+  "type": "module",
+  "main": "src/server.ts",
+  "scripts": {
+    "start": "bun src/server.ts"
+  },
+  "dependencies": {
+    "@dc/adapters-aws": "workspace:*",
+    "@dc/adapters-sanctions": "workspace:*",
+    "@dc/adapters-simulated": "workspace:*",
+    "@dc/agent-affordability": "workspace:*",
+    "@dc/agent-aml-risk": "workspace:*",
+    "@dc/agent-audit": "workspace:*",
+    "@dc/agent-bank-verification": "workspace:*",
+    "@dc/agent-classification": "workspace:*",
+    "@dc/agent-collateral": "workspace:*",
+    "@dc/agent-coordinator": "workspace:*",
+    "@dc/agent-credit-history": "workspace:*",
+    "@dc/agent-cross-reference": "workspace:*",
+    "@dc/agent-document-verification": "workspace:*",
+    "@dc/agent-extraction": "workspace:*",
+    "@dc/agent-investigation": "workspace:*",
+    "@dc/agent-kyc-freshness": "workspace:*",
+    "@dc/agent-risk-fraud": "workspace:*",
+    "@dc/agent-sanctions-pep": "workspace:*",
+    "@dc/agent-summary-communication": "workspace:*",
+    "@dc/agent-triage": "workspace:*",
+    "@dc/ai-kit": "workspace:*",
+    "@dc/contracts": "workspace:*",
+    "@dc/ports": "workspace:*",
+    "@dc/rules": "workspace:*",
+    "hono": "^4.13.14",
+    "zod": "^4.1.0"
+  }
+}

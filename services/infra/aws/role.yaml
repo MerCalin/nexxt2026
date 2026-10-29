@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Document-check service — ECS task role. Least privilege: Bedrock (EU inference profile only),
+  Textract, the document bucket, the case table, and append-only writes to the audit table.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+  BedrockInferenceProfileId:
+    Type: String
+    Default: eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+    Description: EU cross-region inference profile id (also set as BEDROCK_MODEL_ID on the task)
+  BedrockFoundationModelId:
+    Type: String
+    Default: anthropic.claude-sonnet-4-5-20250929-v1:0
+
+Resources:
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "doccheck-${Env}-document-check-task"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike: { "aws:SourceArn": !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*" }
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: document-check
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BedrockEuProfileOnly
+                Effect: Allow
+                # the Converse API is authorised by bedrock:InvokeModel
+                Action: [bedrock:InvokeModel]
+                Resource:
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockInferenceProfileId}"
+                  # the EU profile routes to the foundation model in EU regions only
+                  - !Sub "arn:aws:bedrock:eu-*::foundation-model/${BedrockFoundationModelId}"
+                Condition:
+                  StringLike: { "aws:RequestedRegion": "eu-*" }
+              - Sid: Textract
+                Effect: Allow
+                Action: [textract:AnalyzeDocument, textract:StartDocumentAnalysis, textract:GetDocumentAnalysis]
+                Resource: "*"
+              - Sid: Documents
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub
+                  - "${Arn}/*"
+                  - Arn: { "Fn::ImportValue": !Sub "doccheck-${Env}-documents-bucket-arn" }
+              - Sid: DocumentsKms
+                Effect: Allow
+                Action: [kms:Decrypt, kms:GenerateDataKey, kms:Encrypt]
+                Resource: { "Fn::ImportValue": !Sub "doccheck-${Env}-data-key" }
+              - Sid: Cases
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query, dynamodb:Scan]
+                Resource: { "Fn::ImportValue": !Sub "doccheck-${Env}-cases-table-arn" }
+              # Overwrites are prevented by the conditional write in DynamoAuditStore (attribute_not_exists(seq)),
+              # UpdateItem/DeleteItem are denied by the table resource policy, and tampering is detected by the hash chain.
+              - Sid: AuditAppendOnly
+                Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:Query]
+                Resource: { "Fn::ImportValue": !Sub "doccheck-${Env}-audit-table-arn" }
+
+Outputs:
+  TaskRoleArn: { Value: !GetAtt TaskRole.Arn, Export: { Name: !Sub "doccheck-${Env}-document-check-task-role" } }

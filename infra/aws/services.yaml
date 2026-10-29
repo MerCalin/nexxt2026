@@ -1,0 +1,316 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Document-check platform — ECS services and load balancer.
+    * web        (TanStack Start, Bun)   ← ALB default route
+    * staff-api  (Hono, Bun)             ← ALB /api/*  (same origin as the web app)
+    * document-check (Hono, Bun)         ← VPC Lattice only; no load balancer, no public route.
+  The Lattice auth policy admits only the staff API task role (SigV4).
+  Deploy order: network, registries, staff-signin, data, lattice, both task roles, then this stack.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+  ImageTag:
+    Type: String
+  CertificateArn:
+    Type: String
+    Description: ACM certificate for the staff web app hostname
+  AllowedCidr:
+    Type: String
+    Default: 10.0.0.0/8
+    Description: Bank network range allowed to reach the staff app (internal load balancer recommended)
+  BedrockModelId:
+    Type: String
+    Default: eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+  LatticePrefixListId:
+    Type: String
+    Description: Managed prefix list com.amazonaws.<region>.vpc-lattice (aws ec2 describe-managed-prefix-lists)
+  AllowSimulatedAuthorities:
+    Type: String
+    AllowedValues: ["no", "yes"]
+    Default: "no"
+    Description: "yes = demo only: CRC/ANAF/cazier/ANCPI answers are SIMULATED (labelled SIMULAT everywhere)"
+
+Conditions:
+  Simulated: !Equals [!Ref AllowSimulatedAuthorities, "yes"]
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "doccheck-${Env}"
+      ClusterSettings: [{ Name: containerInsights, Value: enabled }]
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/doccheck/${Env}"
+      RetentionInDays: 365
+      KmsKeyId: { "Fn::ImportValue": !Sub "doccheck-${Env}-data-key" }
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: { "Fn::ImportValue": !Sub "doccheck-${Env}-signing-key" }
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: { "Fn::ImportValue": !Sub "doccheck-${Env}-data-key" }
+
+  # ---------------------------------------------------------------- security groups
+  AlbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Staff web app load balancer
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref AllowedCidr }]
+  WebSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: web + staff-api tasks
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3000, ToPort: 3001, SourceSecurityGroupId: !Ref AlbSg }
+  DocCheckSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: document-check tasks - reachable only through VPC Lattice
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourcePrefixListId: !Ref LatticePrefixListId
+
+  # ---------------------------------------------------------------- load balancer (web + staff API)
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internal
+      Subnets: !Split [",", { "Fn::ImportValue": !Sub "doccheck-${Env}-private-subnets" }]
+      SecurityGroups: [!Ref AlbSg]
+      LoadBalancerAttributes:
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: "true" }
+  WebTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      HealthCheckPath: /
+  StaffApiTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3001
+      HealthCheckPath: /api/healthz
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{ CertificateArn: !Ref CertificateArn }]
+      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref WebTg }]
+  ApiRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 10
+      Conditions: [{ Field: path-pattern, PathPatternConfig: { Values: ["/api/*"] } }]
+      Actions: [{ Type: forward, TargetGroupArn: !Ref StaffApiTg }]
+
+  # ---------------------------------------------------------------- VPC Lattice (staff API → document-check)
+  DocCheckAuthPolicy:
+    Type: AWS::VpcLattice::AuthPolicy
+    Properties:
+      ResourceIdentifier: { "Fn::ImportValue": !Sub "doccheck-${Env}-lattice-document-check" }
+      Policy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OnlyStaffApi
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/doccheck-${Env}-staff-api-task" }
+            Action: vpc-lattice-svcs:Invoke
+            Resource: "*"
+            Condition: { StringEquals: { "vpc-lattice-svcs:SourceVpc": { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" } } }
+  ServiceNetworkAuthPolicy:
+    Type: AWS::VpcLattice::AuthPolicy
+    Properties:
+      ResourceIdentifier: { "Fn::ImportValue": !Sub "doccheck-${Env}-lattice-network" }
+      Policy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/doccheck-${Env}-staff-api-task" }
+            Action: vpc-lattice-svcs:Invoke
+            Resource: "*"
+
+  # ---------------------------------------------------------------- task definitions
+  DocCheckTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "doccheck-${Env}-document-check"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "1024"
+      Memory: "2048"
+      RuntimePlatform: { CpuArchitecture: ARM64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: { "Fn::ImportValue": !Sub "doccheck-${Env}-document-check-task-role" }
+      Volumes: [{ Name: tmp }]
+      ContainerDefinitions:
+        - Name: document-check
+          Image: !Sub
+            - "${Repo}:${ImageTag}"
+            - Repo: { "Fn::ImportValue": !Sub "doccheck-${Env}-repo-document-check" }
+          PortMappings: [{ Name: http, ContainerPort: 8080 }]
+          ReadonlyRootFilesystem: true
+          MountPoints: [{ SourceVolume: tmp, ContainerPath: /tmp }]
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref "AWS::Region" }
+            - { Name: DOC_BUCKET, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-documents-bucket" } }
+            - { Name: KMS_KEY_ID, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-data-key" } }
+            - { Name: CASES_TABLE, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-cases-table" } }
+            - { Name: AUDIT_TABLE, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-audit-table" } }
+            - { Name: BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
+            - Name: ALLOW_SIMULATED_AUTHORITIES
+              Value: !If [Simulated, i-understand-this-is-not-real-data, "no"]
+          Secrets:
+            - { Name: STAFF_API_SIGNING_KEY, ValueFrom: { "Fn::ImportValue": !Sub "doccheck-${Env}-signing-key" } }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: { awslogs-group: !Ref LogGroup, awslogs-region: !Ref "AWS::Region", awslogs-stream-prefix: document-check }
+
+  StaffApiTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "doccheck-${Env}-staff-api"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      RuntimePlatform: { CpuArchitecture: ARM64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/doccheck-${Env}-staff-api-task"
+      Volumes: [{ Name: tmp }]
+      ContainerDefinitions:
+        - Name: staff-api
+          Image: !Sub
+            - "${Repo}:${ImageTag}"
+            - Repo: { "Fn::ImportValue": !Sub "doccheck-${Env}-repo-staff-api" }
+          PortMappings: [{ ContainerPort: 3001 }]
+          ReadonlyRootFilesystem: true
+          MountPoints: [{ SourceVolume: tmp, ContainerPath: /tmp }]
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref "AWS::Region" }
+            - { Name: COGNITO_USER_POOL_ID, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-user-pool" } }
+            - { Name: COGNITO_CLIENT_ID, Value: { "Fn::ImportValue": !Sub "doccheck-${Env}-web-client" } }
+            - Name: DOC_CHECK_SERVICE_URL
+              Value: !Sub
+                - "https://${Dns}"
+                - Dns: { "Fn::ImportValue": !Sub "doccheck-${Env}-lattice-document-check-dns" }
+            - { Name: LATTICE_AUTH, Value: sigv4 }
+          Secrets:
+            - { Name: STAFF_API_SIGNING_KEY, ValueFrom: { "Fn::ImportValue": !Sub "doccheck-${Env}-signing-key" } }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: { awslogs-group: !Ref LogGroup, awslogs-region: !Ref "AWS::Region", awslogs-stream-prefix: staff-api }
+
+  WebTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "doccheck-${Env}-web"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      RuntimePlatform: { CpuArchitecture: ARM64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      Volumes: [{ Name: tmp }]
+      ContainerDefinitions:
+        - Name: web
+          Image: !Sub
+            - "${Repo}:${ImageTag}"
+            - Repo: { "Fn::ImportValue": !Sub "doccheck-${Env}-repo-web" }
+          PortMappings: [{ ContainerPort: 3000 }]
+          ReadonlyRootFilesystem: true
+          MountPoints: [{ SourceVolume: tmp, ContainerPath: /tmp }]
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: { awslogs-group: !Ref LogGroup, awslogs-region: !Ref "AWS::Region", awslogs-stream-prefix: web }
+
+  # ---------------------------------------------------------------- services
+  InfraRole:
+    # lets ECS register document-check tasks with the VPC Lattice target group
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: ecs.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonECSInfrastructureRolePolicyForVpcLattice]
+
+  DocCheckService:
+    Type: AWS::ECS::Service
+    DependsOn: [DocCheckAuthPolicy, ServiceNetworkAuthPolicy]
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: document-check
+      LaunchType: FARGATE
+      DesiredCount: 2
+      TaskDefinition: !Ref DocCheckTask
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [",", { "Fn::ImportValue": !Sub "doccheck-${Env}-private-subnets" }]
+          SecurityGroups: [!Ref DocCheckSg]
+      VpcLatticeConfigurations:
+        - { RoleArn: !GetAtt InfraRole.Arn, TargetGroupArn: { "Fn::ImportValue": !Sub "doccheck-${Env}-lattice-document-check-tg" }, PortName: http }
+  StaffApiService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiRule
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: staff-api
+      LaunchType: FARGATE
+      DesiredCount: 2
+      TaskDefinition: !Ref StaffApiTask
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [",", { "Fn::ImportValue": !Sub "doccheck-${Env}-private-subnets" }]
+          SecurityGroups: [!Ref WebSg]
+      LoadBalancers: [{ ContainerName: staff-api, ContainerPort: 3001, TargetGroupArn: !Ref StaffApiTg }]
+  WebService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: web
+      LaunchType: FARGATE
+      DesiredCount: 2
+      TaskDefinition: !Ref WebTask
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [",", { "Fn::ImportValue": !Sub "doccheck-${Env}-private-subnets" }]
+          SecurityGroups: [!Ref WebSg]
+      LoadBalancers: [{ ContainerName: web, ContainerPort: 3000, TargetGroupArn: !Ref WebTg }]
+
+Outputs:
+  AlbDnsName: { Value: !GetAtt Alb.DNSName }

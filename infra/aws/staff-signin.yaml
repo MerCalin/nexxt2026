@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Document-check platform — staff sign-in. Cognito user pool for bank staff (no self sign-up, MFA required),
+  groups mapped to service roles, and a public app client using the authorization code flow with PKCE.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+  AppUrl:
+    Type: String
+    Description: Public URL of the staff web app, e.g. https://doccheck.bank.example.ro
+  DomainPrefix:
+    Type: String
+    Description: Cognito hosted UI domain prefix (globally unique)
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "doccheck-${Env}-staff"
+      AdminCreateUserConfig: { AllowAdminCreateUserOnly: true }
+      MfaConfiguration: "ON"
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy: { MinimumLength: 14, RequireLowercase: true, RequireUppercase: true, RequireNumbers: true, RequireSymbols: true, TemporaryPasswordValidityDays: 1 }
+      AccountRecoverySetting: { RecoveryMechanisms: [{ Name: admin_only, Priority: 1 }] }
+      UserPoolAddOns: { AdvancedSecurityMode: ENFORCED }
+      DeletionProtection: ACTIVE
+
+  CreditOfficers:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: credit-officers, Description: "Ofițeri credite — fluxuri de creditare" }
+  KycOfficers:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: kyc-officers, Description: "Ofițeri KYC — deschidere cont" }
+  Compliance:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { UserPoolId: !Ref UserPool, GroupName: compliance, Description: "Conformitate — sancțiuni, PEP, AML, cazier" }
+
+  Domain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties: { UserPoolId: !Ref UserPool, Domain: !Ref DomainPrefix }
+
+  WebClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: staff-web
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, profile, email]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: [!Sub "${AppUrl}/auth/callback"]
+      LogoutURLs: [!Ref AppUrl]
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 8
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: hours }
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+
+Outputs:
+  UserPoolId: { Value: !Ref UserPool, Export: { Name: !Sub "doccheck-${Env}-user-pool" } }
+  WebClientId: { Value: !Ref WebClient, Export: { Name: !Sub "doccheck-${Env}-web-client" } }
+  HostedUiDomain: { Value: !Sub "https://${DomainPrefix}.auth.${AWS::Region}.amazoncognito.com", Export: { Name: !Sub "doccheck-${Env}-hosted-ui" } }

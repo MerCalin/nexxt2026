@@ -1,0 +1,7 @@
+{
+  "lane": "human_review",
+  "codes": [
+    "FRAUD_EDITOR_SOFTWARE",
+    "FRAUD_MODIFIED_AFTER_CREATION"
+  ]
+}

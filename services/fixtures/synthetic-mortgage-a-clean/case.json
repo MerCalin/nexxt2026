@@ -1,0 +1,26 @@
+{
+  "workflow": "mortgage",
+  "subject": {
+    "customerRef": "BADEA-GABRIEL-A",
+    "declaredSourceOfFunds": "salariu",
+    "isFirstHome": true,
+    "loan": {
+      "amount": 300000,
+      "currency": "RON",
+      "termMonths": 360,
+      "annualRatePct": 6.9,
+      "purchasePrice": 400000
+    }
+  },
+  "consents": [
+    "credit_bureau_lookup",
+    "criminal_record_lookup",
+    "anaf_tax_debt_lookup"
+  ],
+  "pairWith": "~/Downloads/hackerton/Badea_Gabriel_12 (1_ID_Card.png, 3_Residence_Doc.png, 4_Employment.png, 5_Payments_Report.pdf)",
+  "expect": [
+    "no collateral findings",
+    "LTV 0.75 (limit 0.85)",
+    "DTI ≈ 44 % against the 45 % first-home limit → AFFORD_DTI_NEAR_LIMIT (low)"
+  ]
+}

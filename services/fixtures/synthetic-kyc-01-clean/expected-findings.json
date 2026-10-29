@@ -1,0 +1,12 @@
+{
+  "lane": "ready_for_officer",
+  "codes": [],
+  "absent": [
+    "XREF_NAME_MISMATCH",
+    "XREF_ADDRESS_MISMATCH",
+    "XREF_CNP_MISMATCH",
+    "DOCVER_EXPIRED",
+    "DOCVER_MRZ_CHECK_FAILED",
+    "CLASS_MISSING_REQUIRED"
+  ]
+}

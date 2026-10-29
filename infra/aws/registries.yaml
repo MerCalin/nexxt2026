@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Document-check platform — container registries (immutable tags, scan on push, KMS-encrypted).
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+
+Resources:
+  WebRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "doccheck-${Env}/web"
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: KMS }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 30","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+  StaffApiRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "doccheck-${Env}/staff-api"
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: KMS }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 30","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+  DocCheckRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "doccheck-${Env}/document-check"
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: KMS }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 30","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+
+Outputs:
+  WebRepoUri: { Value: !GetAtt WebRepo.RepositoryUri, Export: { Name: !Sub "doccheck-${Env}-repo-web" } }
+  StaffApiRepoUri: { Value: !GetAtt StaffApiRepo.RepositoryUri, Export: { Name: !Sub "doccheck-${Env}-repo-staff-api" } }
+  DocCheckRepoUri: { Value: !GetAtt DocCheckRepo.RepositoryUri, Export: { Name: !Sub "doccheck-${Env}-repo-document-check" } }

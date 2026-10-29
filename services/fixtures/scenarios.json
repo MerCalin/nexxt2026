@@ -1,0 +1,69 @@
+{
+  "_comment": "SIMULATED authority data for the demo. Keyed by CNP (persons), cadastral number (landRegister) and customerRef (kyc). Unknown CNPs get a clean record; unknown cadastral numbers are 'unavailable'. Add the CNPs from your fixture documents here.",
+  "persons": {
+    "1750417026311": {
+      "criminalRecord": {
+        "hasRecord": true,
+        "entries": [
+          {
+            "offence": "art. 244 C.pen. — înșelăciune (SIMULAT)",
+            "date": "2019-05-14",
+            "final": true
+          }
+        ]
+      }
+    }
+  },
+  "landRegister": {
+    "231457": {
+      "cadastralNumber": "231457",
+      "carteFunciaraNumber": "231457",
+      "uat": "Timișoara",
+      "owners": [
+        {
+          "name": "IONESCU MARIA",
+          "share": "1/1"
+        }
+      ],
+      "encumbrances": []
+    },
+    "318902": {
+      "cadastralNumber": "318902",
+      "carteFunciaraNumber": "318902",
+      "uat": "Timișoara",
+      "owners": [
+        {
+          "name": "POPA ANDREI",
+          "share": "1/1"
+        }
+      ],
+      "encumbrances": [
+        {
+          "type": "ipotecă",
+          "holder": "BANCA BETA S.A.",
+          "registeredAt": "2019-06-11"
+        },
+        {
+          "type": "sechestru asigurator",
+          "holder": "ANAF — DGRFP Timișoara",
+          "registeredAt": "2026-08-02"
+        }
+      ]
+    }
+  },
+  "kyc": {},
+  "pep": [
+    {
+      "name": "Exemplu Demnitar Public",
+      "birthDate": "1965-01-01",
+      "position": "Membru al Parlamentului (exemplu simulat)",
+      "country": "ROU"
+    },
+    {
+      "name": "Șerban Vlădescu",
+      "birthDate": "1966-02-04",
+      "position": "Secretar de stat (exemplu simulat)",
+      "country": "ROU"
+    }
+  ]
+}

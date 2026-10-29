@@ -1,0 +1,9 @@
+{
+  "lane": "ready_for_officer",
+  "codes": [],
+  "absent": [
+    "CLASS_STATEMENT_NO_ADDRESS",
+    "CLASS_MISSING_REQUIRED",
+    "DOCVER_MRZ_CHECK_FAILED"
+  ]
+}

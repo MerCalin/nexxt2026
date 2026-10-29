@@ -1,0 +1,50 @@
+/*
+ * Bank colour scheme: yellow + black (Raiffeisen-style palette; colours only, no marks).
+ * Yellow is used for surfaces and accents; anything that must be read (text, icons, focus rings)
+ * on white is black, because yellow text on white fails WCAG contrast.
+ */
+:root {
+  --rb-black: rgb(0 0 0);
+  --rb-ink-2: rgb(64 64 64);
+
+  /* solid brand surfaces (primary buttons, dark featured icons): yellow with black content */
+  --color-bg-brand-solid: var(--color-brand-400);
+  --color-bg-brand-solid_hover: var(--color-brand-500);
+  --color-text-primary_on-brand: var(--rb-black);
+  --color-text-secondary_on-brand: rgb(0 0 0 / 0.72);
+  --color-text-tertiary_on-brand: rgb(0 0 0 / 0.6);
+  --color-text-quaternary_on-brand: rgb(0 0 0 / 0.5);
+  --color-icon-fg-brand_on-brand: var(--rb-black);
+
+  /* light brand surfaces (selected cards, tabs): pale yellow */
+  --color-bg-brand-primary: var(--color-brand-50);
+  --color-bg-brand-primary_alt: var(--color-brand-25);
+  --color-bg-brand-secondary: var(--color-brand-100);
+  --color-bg-brand-section: var(--rb-black);
+  --color-bg-brand-section_subtle: rgb(28 28 28);
+
+  /* brand text and icons on white: black */
+  --color-text-brand-primary: var(--rb-black);
+  --color-text-brand-secondary: var(--rb-black);
+  --color-text-brand-secondary_hover: var(--rb-ink-2);
+  --color-text-brand-tertiary: var(--rb-ink-2);
+  --color-text-brand-tertiary_alt: var(--rb-ink-2);
+  --color-fg-brand-primary: var(--rb-black);
+  --color-fg-brand-secondary: var(--rb-black);
+  --color-fg-brand-secondary_hover: var(--rb-ink-2);
+  --color-featured-icon-light-fg-brand: var(--rb-black);
+
+  /* accents: yellow underline for the active tab, black ring for selected items and focus */
+  --color-fg-brand-primary_alt: var(--color-brand-400);
+  --color-border-brand: var(--rb-black);
+  --color-border-brand_alt: var(--rb-black);
+  --color-focus-ring: var(--rb-black);
+
+  /* "brand" badges: pale yellow with dark olive text (readable) */
+  --color-utility-brand-50: var(--color-brand-50);
+  --color-utility-brand-100: var(--color-brand-100);
+  --color-utility-brand-200: var(--color-brand-300);
+  --color-utility-brand-500: var(--color-brand-800);
+  --color-utility-brand-600: var(--color-brand-800);
+  --color-utility-brand-700: var(--color-brand-900);
+}

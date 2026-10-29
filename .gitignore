@@ -1,0 +1,15 @@
+node_modules/
+.output/
+.nitro/
+.tanstack/
+dist/
+*.log
+.env
+.env.*
+
+# Customer documents contain personal data (GDPR): never commit real fixtures.
+services/fixtures/*/
+!services/fixtures/synthetic-*/
+
+# batch run reports
+services/reports/

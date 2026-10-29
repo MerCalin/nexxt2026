@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Document-check platform — VPC Lattice service network and the document-check Lattice service.
+  Deployed before the task roles (the staff API role is scoped to this service's ARN). The auth
+  policies that admit only the staff API role are attached in services.yaml, after the roles exist.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+
+Resources:
+  ClientSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lattice service-network association (staff API to document-check)
+      VpcId: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc-cidr" }
+
+  ServiceNetwork:
+    Type: AWS::VpcLattice::ServiceNetwork
+    Properties:
+      Name: !Sub "doccheck-${Env}"
+      AuthType: AWS_IAM
+  ServiceNetworkVpc:
+    Type: AWS::VpcLattice::ServiceNetworkVpcAssociation
+    Properties:
+      ServiceNetworkIdentifier: !Ref ServiceNetwork
+      VpcIdentifier: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+      SecurityGroupIds: [!Ref ClientSg]
+
+  TargetGroup:
+    Type: AWS::VpcLattice::TargetGroup
+    Properties:
+      Name: !Sub "doccheck-${Env}-document-check"
+      Type: IP
+      Config:
+        VpcIdentifier: { "Fn::ImportValue": !Sub "doccheck-${Env}-vpc" }
+        Protocol: HTTP
+        Port: 8080
+        HealthCheck: { Enabled: true, Path: /healthz, Protocol: HTTP }
+  Service:
+    Type: AWS::VpcLattice::Service
+    Properties:
+      Name: !Sub "doccheck-${Env}-document-check"
+      AuthType: AWS_IAM
+  Listener:
+    Type: AWS::VpcLattice::Listener
+    Properties:
+      ServiceIdentifier: !Ref Service
+      Protocol: HTTPS
+      Port: 443
+      DefaultAction: { Forward: { TargetGroups: [{ TargetGroupIdentifier: !Ref TargetGroup, Weight: 100 }] } }
+  ServiceAssoc:
+    Type: AWS::VpcLattice::ServiceNetworkServiceAssociation
+    Properties:
+      ServiceNetworkIdentifier: !Ref ServiceNetwork
+      ServiceIdentifier: !Ref Service
+
+Outputs:
+  ServiceNetworkId: { Value: !Ref ServiceNetwork, Export: { Name: !Sub "doccheck-${Env}-lattice-network" } }
+  ServiceId: { Value: !Ref Service, Export: { Name: !Sub "doccheck-${Env}-lattice-document-check" } }
+  ServiceArn: { Value: !GetAtt Service.Arn, Export: { Name: !Sub "doccheck-${Env}-lattice-document-check-arn" } }
+  ServiceDns: { Value: !GetAtt Service.DnsEntry.DomainName, Export: { Name: !Sub "doccheck-${Env}-lattice-document-check-dns" } }
+  TargetGroupArn: { Value: !GetAtt TargetGroup.Arn, Export: { Name: !Sub "doccheck-${Env}-lattice-document-check-tg" } }

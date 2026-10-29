@@ -1,0 +1,7 @@
+{
+  "workflow": "onboarding",
+  "subject": {
+    "customerRef": "KYC-09-NO-CONSENT"
+  },
+  "consents": []
+}

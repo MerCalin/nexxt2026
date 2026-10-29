@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Document-check platform — data stores. KMS key, private document bucket (versioned, encrypted,
+  retention lifecycle), case table and append-only audit table. All in the EU region.
+
+Parameters:
+  Env:
+    Type: String
+    AllowedValues: [dev, test, prod]
+  DocumentRetentionDays:
+    Type: Number
+    Default: 1825
+    Description: >
+      Documents kept 5 years after upload (Law 129/2019 art. 21 record keeping). Confirm with the DPO;
+      rejected applications may require a shorter period under GDPR art. 5(1)(e).
+
+Resources:
+  DataKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "doccheck-${Env} customer documents and case data"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdmin
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root" }
+            Action: "kms:*"
+            Resource: "*"
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: { AliasName: !Sub "alias/doccheck-${Env}-data", TargetKeyId: !Ref DataKey }
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "doccheck-${Env}-documents-${AWS::AccountId}"
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms, KMSMasterKeyID: !GetAtt DataKey.Arn }
+            BucketKeyEnabled: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: retention
+            Status: Enabled
+            ExpirationInDays: !Ref DocumentRetentionDays
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+  DocumentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt DocumentBucket.Arn, !Sub "${DocumentBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  CasesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "doccheck-${Env}-cases"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: pk, AttributeType: S }, { AttributeName: sk, AttributeType: S }]
+      KeySchema: [{ AttributeName: pk, KeyType: HASH }, { AttributeName: sk, KeyType: RANGE }]
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !GetAtt DataKey.Arn }
+      DeletionProtectionEnabled: true
+
+  AuditTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "doccheck-${Env}-audit"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: caseId, AttributeType: S }, { AttributeName: seq, AttributeType: N }]
+      KeySchema: [{ AttributeName: caseId, KeyType: HASH }, { AttributeName: seq, KeyType: RANGE }]
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !GetAtt DataKey.Arn }
+      DeletionProtectionEnabled: true
+      # Resource policy: nobody, including admins of this account, may update or delete audit rows.
+      ResourcePolicy:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: AppendOnly
+              Effect: Deny
+              Principal: "*"
+              Action: [dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:BatchWriteItem, dynamodb:DeleteTable, dynamodb:PartiQLUpdate, dynamodb:PartiQLDelete]
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/doccheck-${Env}-audit"
+
+  SigningKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "doccheck-${Env}/staff-api-signing-key"
+      Description: HMAC key binding officer identity and role on staff API → document-check calls
+      KmsKeyId: !Ref DataKey
+      GenerateSecretString: { PasswordLength: 64, ExcludePunctuation: true }
+
+Outputs:
+  DataKeyArn: { Value: !GetAtt DataKey.Arn, Export: { Name: !Sub "doccheck-${Env}-data-key" } }
+  DocumentBucketName: { Value: !Ref DocumentBucket, Export: { Name: !Sub "doccheck-${Env}-documents-bucket" } }
+  DocumentBucketArn: { Value: !GetAtt DocumentBucket.Arn, Export: { Name: !Sub "doccheck-${Env}-documents-bucket-arn" } }
+  CasesTableName: { Value: !Ref CasesTable, Export: { Name: !Sub "doccheck-${Env}-cases-table" } }
+  CasesTableArn: { Value: !GetAtt CasesTable.Arn, Export: { Name: !Sub "doccheck-${Env}-cases-table-arn" } }
+  AuditTableName: { Value: !Ref AuditTable, Export: { Name: !Sub "doccheck-${Env}-audit-table" } }
+  AuditTableArn: { Value: !GetAtt AuditTable.Arn, Export: { Name: !Sub "doccheck-${Env}-audit-table-arn" } }
+  SigningKeyArn: { Value: !Ref SigningKey, Export: { Name: !Sub "doccheck-${Env}-signing-key" } }
